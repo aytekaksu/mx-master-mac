@@ -1,6 +1,8 @@
 # MX Master Mac
 
-Two extra control layers for the Logitech MX Master 4 on macOS. Hold a side button and use the mouse wheel or clicks; release it to use the mouse normally again. This first release uses Logi Options+, a small native helper, Hammerspoon, and AltTab. There is no Hammerspoon pop-up UI.
+**The way to use your MX Master 4 on a Mac—without missing the trackpad.**
+
+Switch browser tabs and windows, and use everyday shortcuts, right from your mouse. Hold a side button and use the wheel or clicks; release it to use the mouse normally again. The helper identifies MX input so your trackpad keeps working. This first release needs manual setup, Logi Options+, Hammerspoon, and AltTab. There is no Hammerspoon pop-up UI.
 
 ## Controls
 
