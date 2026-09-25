@@ -1,15 +1,13 @@
 #!/bin/sh
 set -eu
 
-package_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-target_dir=${MX4_HAMMERSPOON_DIR:-"$HOME/.hammerspoon"}
-logi_agent='/Library/Application Support/Logitech.localized/LogiOptionsPlus/logioptionsplus_agent.app/Contents/MacOS/logioptionsplus_agent'
-
-if [ ! -d /Applications/Hammerspoon.app ] || [ ! -d /Applications/AltTab.app ] || [ ! -x "$logi_agent" ]; then
-    printf 'Install Logi Options+, Hammerspoon, and AltTab in their standard locations first.\n' >&2
+if [ "$(id -u)" -eq 0 ]; then
+    printf 'Run this as your normal Mac user, without sudo.\n' >&2
     exit 1
 fi
 
+package_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+target_dir=${MX4_HAMMERSPOON_DIR:-"$HOME/.hammerspoon"}
 for file in mx4-device-helper mx4-safe-init.lua mx4-helper-runtime.lua; do
     if [ ! -f "$package_dir/$file" ]; then
         printf 'Missing release file: %s\n' "$file" >&2
@@ -22,8 +20,14 @@ if ! codesign --verify --strict "$package_dir/mx4-device-helper"; then
     exit 1
 fi
 
-if [ -L "$target_dir/init.lua" ]; then
-    printf 'Your Hammerspoon init.lua is a symlink. Add the two loader lines manually; no files were changed.\n' >&2
+for file in mx4-device-helper mx4-safe-init.lua mx4-helper-runtime.lua init.lua; do
+    if [ -L "$target_dir/$file" ]; then
+        printf '%s is a symlink. Add the loader lines manually; no files were changed.\n' "$target_dir/$file" >&2
+        exit 1
+    fi
+done
+if [ -e "$target_dir/init.lua" ] && { [ ! -f "$target_dir/init.lua" ] || [ ! -w "$target_dir/init.lua" ]; }; then
+    printf '%s must be a writable file; no files were changed.\n' "$target_dir/init.lua" >&2
     exit 1
 fi
 

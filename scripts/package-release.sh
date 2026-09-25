@@ -1,13 +1,13 @@
 #!/bin/sh
 set -eu
 
-version=${1:-v0.2.0}
+version=${1:-v0.3.0}
 if ! printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-    printf 'Expected a version such as v0.2.0\n' >&2
+    printf 'Expected a version such as v0.3.0\n' >&2
     exit 2
 fi
 
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 package_name="mx-master-mac-$version-macos-universal"
 dist_dir="$repo_dir/dist"
 package_dir="$dist_dir/$package_name"
