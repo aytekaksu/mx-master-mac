@@ -1,0 +1,5 @@
+-- MX Master 4 layered macros for this Mac. The native helper checks mouse
+-- provenance; the Lua receiver handles only its tagged commands.
+require("hs.ipc")
+dofile(hs.configdir .. "/mx4-safe-init.lua")
+dofile(hs.configdir .. "/mx4-helper-runtime.lua")
