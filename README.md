@@ -2,7 +2,7 @@
 
 **The way to use your MX Master 4 on a Mac—without missing the trackpad.**
 
-Switch browser tabs and windows, and use everyday shortcuts, right from your mouse. Hold a side button and use the wheel or clicks; release it to use the mouse normally again. The helper identifies MX input so your trackpad keeps working. This first release needs manual setup, Logi Options+, Hammerspoon, and AltTab. There is no Hammerspoon pop-up UI.
+Switch browser tabs and windows, and use everyday shortcuts, right from your mouse. Hold a side button and use the wheel or clicks; release it to use the mouse normally again. The helper identifies MX input so your trackpad keeps working. The GitHub download includes the compiled helper, so you do not need to build it. Logi Options+, Hammerspoon, and AltTab are still required. There is no Hammerspoon pop-up UI.
 
 ## Controls
 
@@ -17,39 +17,31 @@ While holding the third side button, click **left and right together** to select
 
 - MX Master 4, [Logi Options+](https://www.logitech.com/software/logi-options-plus.html), [Hammerspoon](https://www.hammerspoon.org/), and [AltTab](https://alt-tab-macos.netlify.app/).
 - Hammerspoon in `/Applications/Hammerspoon.app` and AltTab in `/Applications/AltTab.app`.
-- Xcode Command Line Tools to build the helper (`xcode-select --install` if needed).
 - macOS Accessibility and Input Monitoring permissions for the helper and Hammerspoon; Accessibility and Screen Recording for AltTab. macOS may ask for Automation permission when switching Vivaldi tabs.
 
-This version was tested on one Apple Silicon Mac with AltTab 11.6.1. The helper currently recognizes the MX Master 4 hardware ID used by that mouse and expects the standard Logi Options+ agent path. Other Logitech mice and other AltTab versions are not verified.
+The prebuilt helper contains Apple Silicon and Intel code and targets macOS 13 or newer. Mouse behavior has been tested on one Apple Silicon Mac running macOS 26.3.1 with AltTab 11.6.1; the Intel helper tests passed under Rosetta, but a physical Intel Mac and older macOS versions have not been tested. The helper currently recognizes the MX Master 4 hardware ID used by that mouse and expects the standard Logi Options+ agent path. Other Logitech mice and other AltTab versions are not verified.
 
-## Install manually
+## Install the download
 
 1. Install and start Logi Options+, Hammerspoon, and AltTab. In Logi Options+, assign the MX **thumb button to F13** and the **third side button to F14** as keystrokes.
-2. Clone this repository, then build the helper:
+2. Download **`mx-master-mac-v0.2.0-macos-universal.zip`** from the [latest GitHub release](https://github.com/aytekaksu/mx-master-mac/releases/latest). Use that file, not GitHub's automatic “Source code” ZIP, which has no compiled helper. Unzip it.
+3. Open Terminal in the unzipped folder and run:
 
    ```sh
-   git clone https://github.com/aytekaksu/mx-master-mac.git
-   cd mx-master-mac
-   make
+   sh install.sh
    ```
 
-3. Copy the helper and Lua files:
+   The script checks the helper, copies it and the Lua files into `~/.hammerspoon`, and adds two loader lines to `init.lua` if needed. It saves a backup of existing files and does not reload Hammerspoon while you work.
 
-   ```sh
-   mkdir -p ~/.hammerspoon
-   cp build/mx4-device-helper hammerspoon/mx4-safe-init.lua hammerspoon/mx4-helper-runtime.lua ~/.hammerspoon/
-   ```
-
-4. Add these lines **once** to `~/.hammerspoon/init.lua`. If the file already exists, keep its other lines. The sample [init.lua.example](hammerspoon/init.lua.example) is for a new Hammerspoon setup.
-
-   ```lua
-   dofile(hs.configdir .. "/mx4-safe-init.lua")
-   dofile(hs.configdir .. "/mx4-helper-runtime.lua")
-   ```
-
-5. Grant the requested macOS permissions, then reload Hammerspoon and start AltTab. In AltTab settings, you can also assign **Command+Tab** if you want its window thumbnails from the keyboard. The mouse window layer uses AltTab whether or not you choose that keyboard shortcut.
+4. Grant the requested macOS permissions, then reload Hammerspoon and start AltTab. In AltTab settings, you can also assign **Command+Tab** if you want its window thumbnails from the keyboard. The mouse window layer uses AltTab whether or not you choose that keyboard shortcut.
 
 Hold a button and try one wheel notch in each direction. If a permission is granted after an app is already running, quit and reopen that app before testing again.
+
+The helper is ad hoc signed, not Developer ID signed or notarized. macOS may ask you to approve this specific download in **System Settings → Privacy & Security** before it can run. The release also provides a `.sha256` checksum file for the ZIP. Do not disable Gatekeeper system-wide.
+
+### Build from source (optional)
+
+If you prefer to build the helper yourself, install Xcode Command Line Tools, clone this repository, then run `make` and `make test`. The resulting universal helper is `build/mx4-device-helper`; copy it and the two Lua files from `hammerspoon/` into `~/.hammerspoon/`, then add the loader lines from [init.lua.example](hammerspoon/init.lua.example) to your Hammerspoon config.
 
 ## How it works
 
