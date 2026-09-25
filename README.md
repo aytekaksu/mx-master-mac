@@ -26,7 +26,7 @@ The prebuilt helper contains Apple Silicon and Intel code and targets macOS 13 o
 Paste this into Terminal as your normal Mac user:
 
 ```sh
-/bin/sh -c 'script=$(/usr/bin/curl -fsSL https://raw.githubusercontent.com/aytekaksu/mx-master-mac/v0.3.0/scripts/bootstrap.sh) && test -n "$script" && /bin/sh -c "$script"'
+(s=$(curl -fsSL https://github.com/aytekaksu/mx-master-mac/raw/v0.3.0/scripts/bootstrap.sh)&&[ "$s" ]&&sh -c "$s")
 ```
 
 The script downloads this release, checks its built-in SHA-256 digest, and installs the helper in `~/.hammerspoon`. When needed, it downloads verified Hammerspoon 1.1.1 and the tested AltTab 11.6.1 from their official GitHub releases. It downloads Logi Options+ from Logitech and checks Logitech's Developer ID signature before running its installer. No Homebrew, Xcode tools, manual unzip, or source build is needed. It backs up existing Hammerspoon files, keeps already installed apps, and does not open or reload Hammerspoon or AltTab. You can run the command again after an interrupted install.
