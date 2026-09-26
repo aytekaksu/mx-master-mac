@@ -4,7 +4,7 @@ local realHs = hs
 local source = debug.getinfo(1, "S").source:sub(2)
 local candidate = source:gsub("tests/test%-mx4%-alttab%.lua$", "hammerspoon/mx4-safe-init.lua")
 
-local function harness()
+local function harness(native)
     local queue, commands, shortcuts = {}, {}, {}
     local now = 1
     local directedKeys = {}
@@ -13,7 +13,43 @@ local function harness()
         {index = 1, wid = 102, pid = 202, title = "Two"},
         {index = 2, wid = 103, pid = 203, title = "Three"},
     }}
+    model.altTabRunning = not native
     local watcher
+    local modifiers = {}
+    local nativeKeys = {}
+    local buttons = {}
+    for i, window in ipairs(model.windows) do
+        buttons[i] = {attributeValue = function(_, attribute)
+            if attribute == "AXTitle" then return window.title end
+        end}
+    end
+    local list = {
+        attributeValue = function(_, attribute)
+            if attribute == "AXSubrole" then return "AXProcessSwitcherList" end
+            if attribute == "AXChildren" then return buttons end
+            if attribute == "AXSelectedChildren" then
+                return model.nativeVisible and {buttons[model.selected + 1]} or {}
+            end
+        end,
+        isAttributeSettable = function(_, attribute) return attribute == "AXSelectedChildren" end,
+        setAttributeValue = function(_, attribute, value)
+            assert(attribute == "AXSelectedChildren")
+            if model.failNativeSelection then return nil end
+            for i, button in ipairs(buttons) do
+                if value[1] == button then model.selected = i - 1; return true end
+            end
+            error("Unknown native selection")
+        end,
+        performAction = function(_, action)
+            if action == "AXConfirm" then
+                if model.failNativeConfirm then return nil end
+                model.focused = model.selected
+                if model.delayNativeConfirm then return true end
+            else assert(action == "AXCancel") end
+            model.nativeVisible = false
+            return true
+        end,
+    }
     local function enqueue(delay, fn) queue[#queue + 1] = {at = now + delay, fn = fn} end
     local mock = {
         keycodes = {map = {f15 = 113}},
@@ -27,7 +63,7 @@ local function harness()
         json = realHs.json,
         accessibilityState = function() return true end,
         execute = function(line)
-            local command = line:match('"%s*(%-%-[%w%-=]+)%s*$')
+            local command = line:match("'%s*(%-%-[%w%-=]+)%s*$")
             assert(command, "Unexpected shell command " .. tostring(line))
             commands[#commands + 1] = command
             local output = ""
@@ -60,11 +96,31 @@ local function harness()
             return output, true, "exit", 0
         end,
         eventtap = {
-            event = {types = {keyDown = 1, keyUp = 2},
+            event = {types = {keyDown = 1, keyUp = 2, scrollWheel = 3,
+                             leftMouseDown = 4, rightMouseDown = 5, otherMouseDown = 6},
                      properties = {eventSourceUserData = "marker", eventSourceUnixProcessID = "pid"},
-                     newKeyEvent = function(_, key, down)
-                         assert(key == "left")
+                     newEvent = function()
+                         local blank = {}
+                         function blank:setType(kind) assert(kind == 0); return self end
+                         function blank:setFlags(flags) assert(next(flags) == nil); return self end
+                         function blank:post() modifiers = {}; nativeKeys[#nativeKeys + 1] = "null" end
+                         return blank
+                     end,
+                     newKeyEvent = function(mods, key, down)
+                         assert(type(mods) == "table", "Must never press a modifier key")
                          return {post = function(_, app)
+                             if not app then
+                                 assert(key == "tab", "Only native opening may post a global key")
+                                 assert(mods[1] == "cmd")
+                                 nativeKeys[#nativeKeys + 1] = key
+                                 modifiers = {cmd = true}
+                                 if down and not model.dropNativeOpen then
+                                     model.nativeVisible = true
+                                     model.selected = mods[2] == "shift" and #model.windows - 1 or 1
+                                 end
+                                 return
+                             end
+                             assert(key == "left")
                              assert(app.alttab)
                              directedKeys[#directedKeys + 1] = {key = key, down = down}
                              if down and not model.dropDirectedKeys and model.visible then
@@ -73,11 +129,12 @@ local function harness()
                          end}
                      end},
             new = function(types, fn)
-                assert(#types == 2 and types[1] == 1 and types[2] == 2)
+                assert(#types == 6 and types[1] == 1 and types[2] == 2)
                 watcher = {callback = fn, start = function() end, isEnabled = function() return true end}
                 return watcher
             end,
             isSecureInputEnabled = function() return false end,
+            checkKeyboardModifiers = function() return model.physicalModifiers or modifiers end,
             keyStroke = function(mods, key)
                 shortcuts[#shortcuts + 1] = table.concat(mods, "+") .. "+" .. key
             end,
@@ -93,7 +150,11 @@ local function harness()
                 }
             end,
             get = function(pid)
-                if pid == "com.lwouis.alt-tab-macos" then return {alttab = true} end
+                if pid == "com.lwouis.alt-tab-macos" then
+                    if not model.altTabRunning then return nil end
+                    return {alttab = true, path = function() return "/Other Apps/AltTab.app" end}
+                end
+                if pid == "com.apple.dock" then return {dock = true} end
                 for _, w in ipairs(model.windows) do
                     if w.pid == pid then
                         return {focusedWindow = function()
@@ -103,7 +164,21 @@ local function harness()
                 end
                 return nil
             end,
+            runningApplications = function()
+                local apps = {}
+                for i, w in ipairs(model.windows) do
+                    apps[i] = {name = function() return w.title end, pid = function() return w.pid end}
+                end
+                return apps
+            end,
         },
+        axuielement = {applicationElement = function(app)
+            assert(app.dock)
+            return {attributeValue = function(_, attribute)
+                assert(attribute == "AXChildren")
+                return model.nativeVisible and {list} or {}
+            end}
+        end},
         window = {
             focusedWindow = function()
                 return {id = function() return model.windows[model.focused + 1].wid end}
@@ -113,7 +188,7 @@ local function harness()
     local env = setmetatable({hs = mock, require = function() end}, {__index = _G})
     assert(loadfile(candidate, "t", env))()
     assert(env.mx4.setHelperPID(42))
-    local function pump()
+    local function pump(limit)
         local n = 0
         while #queue > 0 do
             n = n + 1
@@ -122,11 +197,12 @@ local function harness()
             local item = table.remove(queue, 1)
             now = item.at
             item.fn()
+            if limit and n >= limit then break end
         end
         local status = env.mx4.status()
         assert(status.receiverHealthy, tostring(status.receiverError))
     end
-    local function emit(action)
+    local function emit(action, defer)
         local event = {
             getKeyCode = function() return 113 end,
             getType = function() return 1 end,
@@ -137,9 +213,16 @@ local function harness()
             end,
         }
         assert(watcher.callback(event) == true)
+        if not defer then pump() end
+    end
+    local function pointer(kind)
+        -- No setter/getKeyCode is provided: this event must be passed through
+        -- without inspection of its payload or any replacement/suppression.
+        local original = {getType = function() return kind or 3 end}
+        assert(watcher.callback(original) == false)
         pump()
     end
-    return model, commands, shortcuts, directedKeys, emit
+    return model, commands, shortcuts, directedKeys, emit, env.mx4, nativeKeys, pump, pointer
 end
 
 do
@@ -220,4 +303,180 @@ do
     assert(commands[#commands] == "--hide")
 end
 
-return "eight offline MX to AltTab simulations passed"
+do
+    local model, commands, _, _, emit, receiver, keys = harness(true)
+    emit(6)
+    assert(model.nativeVisible and model.selected == 1)
+    assert(#commands == 0 and #keys == 3 and keys[3] == "null")
+    assert(receiver.status().windowBackend == "macos")
+    emit(5)
+    assert(model.nativeVisible and model.selected == 0)
+    emit(5)
+    assert(model.selected == 2 and #keys == 3) -- AX selection, no extra keyboard events
+    emit(10)
+    assert(not model.nativeVisible and model.focused == 2)
+end
+
+do
+    local model, _, shortcuts, _, emit = harness(true)
+    emit(5)
+    assert(model.selected == 2)
+    emit(7)
+    assert(not model.nativeVisible and model.focused == 2)
+    assert(shortcuts[1] == "cmd+c")
+end
+
+do
+    local model, _, _, _, emit, _, keys = harness(true)
+    model.nativeVisible, model.selected = true, 1 -- Keyboard-owned UI
+    emit(6)
+    emit(10)
+    assert(model.nativeVisible and model.selected == 1 and #keys == 0)
+end
+
+do
+    local model, _, _, _, emit, _, keys = harness(true)
+    model.physicalModifiers = {cmd = true}
+    emit(6)
+    emit(10)
+    assert(not model.nativeVisible and #keys == 0)
+end
+
+do
+    local model, _, _, _, emit = harness(true)
+    emit(6)
+    model.focused = 2 -- A trackpad click changed foreground
+    emit(10)
+    assert(not model.nativeVisible and model.focused == 2)
+end
+
+do
+    local model, _, _, _, emit, receiver = harness(true)
+    emit(6)
+    receiver.reset()
+    assert(not model.nativeVisible and not receiver.status().navigating)
+    emit(10)
+    assert(model.focused == 0)
+end
+
+do
+    local model, _, _, _, emit, receiver = harness(true)
+    model.dropNativeOpen = true
+    emit(6)
+    assert(not receiver.status().navigating)
+    assert(receiver.status().switcherError == "macos-switcher-unavailable")
+end
+
+do
+    local model, _, _, _, emit, receiver = harness(true)
+    emit(6)
+    model.failNativeSelection = true
+    emit(5)
+    assert(not model.nativeVisible and model.focused == 0)
+    assert(receiver.status().switcherError == "macos-selection-failed")
+end
+
+do
+    local model, _, _, _, emit, receiver = harness(true)
+    emit(6)
+    model.failNativeConfirm = true
+    emit(10)
+    assert(not model.nativeVisible and model.focused == 0)
+    assert(receiver.status().switcherError == "macos-confirm-failed")
+end
+
+do
+    local model, _, _, _, emit, receiver = harness(true)
+    emit(6)
+    emit(10)
+    model.altTabRunning = true
+    emit(6)
+    assert(receiver.status().windowBackend == "alttab" and model.visible)
+    emit(10)
+    model.altTabRunning = false
+    emit(5)
+    assert(receiver.status().windowBackend == "macos" and model.nativeVisible)
+    emit(10)
+end
+
+do
+    local model, _, _, _, emit = harness(true)
+    model.physicalModifiers = {capslock = true}
+    emit(6)
+    assert(model.nativeVisible)
+    emit(10)
+    assert(not model.nativeVisible)
+end
+
+do
+    local model, _, _, _, emit, receiver, _, pump = harness(true)
+    emit(6, true)
+    pump(1) -- Opening was posted; Accessibility has not been adopted yet.
+    receiver.reset()
+    emit(6, true) -- A fresh hold cannot steal the pending opening.
+    pump()
+    receiver.reset()
+    pump()
+    assert(not model.nativeVisible)
+end
+
+do
+    local model, _, _, _, emit, receiver, _, pump = harness(true)
+    emit(6)
+    model.delayNativeConfirm = true
+    emit(10, true)
+    pump(1) -- Confirmation is in flight, but its UI is still visible.
+    receiver.reset()
+    pump()
+    assert(not model.nativeVisible)
+end
+
+do
+    local model, _, _, _, emit, _, keys, _, pointer = harness(true)
+    emit(6)
+    pointer() -- Trackpad scroll must cancel, not navigate or select.
+    assert(not model.nativeVisible and model.focused == 0)
+    emit(5) -- Ignore the interrupted hold until release, including momentum.
+    assert(not model.nativeVisible and #keys == 3)
+    emit(10)
+    emit(6)
+    assert(model.nativeVisible)
+    emit(10)
+    assert(model.focused == 1)
+end
+
+do
+    local model, _, _, _, emit, _, _, _, pointer = harness(true)
+    emit(6)
+    pointer(4) -- Trackpad/other-device click also passes through.
+    assert(not model.nativeVisible and model.focused == 0)
+    emit(10)
+end
+
+do
+    local model, _, _, _, _, _, _, _, pointer = harness(true)
+    model.nativeVisible, model.selected = true, 1 -- Keyboard-owned switcher
+    pointer()
+    assert(model.nativeVisible and model.selected == 1)
+end
+
+do
+    local model, _, _, _, emit, _, _, _, pointer = harness(false)
+    emit(6)
+    pointer()
+    assert(model.visible and model.selected == 1) -- AltTab retains existing behavior
+    emit(10)
+end
+
+do
+    local model, _, _, _, emit, _, _, _, pointer = harness(true)
+    emit(6)
+    emit(10, true) -- Physical release arrived, but its commit is still queued.
+    pointer()
+    assert(not model.nativeVisible and model.focused == 0)
+    emit(6) -- The next hold must work without needing a redundant release.
+    assert(model.nativeVisible)
+    emit(10)
+end
+
+return "26 offline MX switcher simulations passed (9 AltTab, 17 native/detection)"

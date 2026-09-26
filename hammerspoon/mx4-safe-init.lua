@@ -1,6 +1,7 @@
 -- MX Master 4 macros. Mouse events are classified and filtered by the native
--- helper before they reach this file. This file never watches ordinary clicks
--- or scrolling and accepts only the helper's tagged F15 events.
+-- helper before they reach this file. Only the helper's tagged F15 events run
+-- macros. Ordinary pointer events pass unchanged; they dismiss an owned native
+-- switcher first so the Dock cannot use trackpad scrolling to change selection.
 
 require("hs.ipc")
 
@@ -10,7 +11,7 @@ local fields = event.properties
 local F15 = hs.keycodes.map.f15
 local TAG_BASE = 0x4D5800
 local KEY_PRESS_USEC = 50000
-local ALT_TAB = "/Applications/AltTab.app/Contents/MacOS/AltTab"
+local altTabPath = nil
 local ALT_TAB_BUNDLE = "com.lwouis.alt-tab-macos"
 
 local ACTION = {
@@ -23,6 +24,9 @@ local ACTION = {
 
 local trace = {}
 local windowNav = nil
+local nativeOwner = nil
+local nativeHoldCancelled = false
+local thirdReleased = true
 local pendingWindowActions = {}
 local windowWorkScheduled = false
 local windowQueueGeneration = 0
@@ -36,6 +40,13 @@ local receiverHealthy = true
 local receiverError = nil
 local sendShortcut
 local clearNavigation
+local cancelNative
+local selectedBackend = nil
+local switcherError = nil
+
+local function shellQuote(value)
+    return "'" .. value:gsub("'", "'\\''") .. "'"
+end
 
 local function receiverFailed(err)
     receiverHealthy = false
@@ -64,7 +75,8 @@ clearNavigation = function()
     pendingWindowActions = {}
     windowWorkScheduled = false
     windowQueueGeneration = windowQueueGeneration + 1
-    if mayHaveOpened then hs.execute('"' .. ALT_TAB .. '" --hide') end
+    if nativeOwner then cancelNative(nativeOwner) end
+    if mayHaveOpened and altTabPath then hs.execute(shellQuote(altTabPath) .. " --hide") end
 end
 
 local function clearTabSteps()
@@ -87,7 +99,7 @@ local function altTabCommand(argument, done, guard)
         runSafely(function()
             if guard and not guard() then done(false, ""); return end
             if argument == "--show=0" then mouseShowIssued = true end
-            local output, ok, _, code = hs.execute('"' .. ALT_TAB .. '" ' .. argument)
+            local output, ok, _, code = hs.execute(shellQuote(altTabPath) .. " " .. argument)
             if not ok then note("alttab-cli-failed:" .. argument .. ":" .. tostring(code)) end
             done(ok == true, output or "")
         end)
@@ -174,6 +186,156 @@ local function originStillFocused(nav)
     return same
 end
 
+-- Apple's Command+Tab lists applications, not individual windows. Open its own
+-- switcher with a flags-only chord, then clear the synthetic event flags with a
+-- null event. No modifier key-down is posted. All selection/commit/cancel work
+-- goes through the Dock's Accessibility list, never through global arrow keys.
+local function nativeList()
+    local dock = hs.application.get("com.apple.dock")
+    local root = dock and hs.axuielement.applicationElement(dock)
+    for _, child in ipairs(root and root:attributeValue("AXChildren") or {}) do
+        if child:attributeValue("AXSubrole") == "AXProcessSwitcherList" then
+            return child
+        end
+    end
+end
+
+cancelNative = function(nav)
+    nav.cancelled = true
+    local list = nativeList()
+    if nav.list and list == nav.list then list:performAction("AXCancel") end
+    if nav.list and nativeOwner == nav then nativeOwner = nil end
+    -- If opening is still in flight, its settle callback cancels the new list.
+end
+
+local function nativeSelection(list)
+    local selected = list:attributeValue("AXSelectedChildren") or {}
+    if #selected ~= 1 then return nil end
+    for index, child in ipairs(list:attributeValue("AXChildren") or {}) do
+        if child == selected[1] then return child, index end
+    end
+end
+
+local function nativeFailed(nav, reason)
+    switcherError = reason
+    note(reason)
+    cancelNative(nav)
+    if windowNav == nav then windowNav = nil end
+end
+
+local function stepNative(direction, generation, done)
+    selectedBackend = "macos"
+    if windowNav then
+        local nav = windowNav
+        local list = nativeList()
+        if not list or list ~= nav.list or not originStillFocused(nav) then
+            nativeFailed(nav, "macos-navigation-interrupted")
+            done()
+            return
+        end
+        local _, index = nativeSelection(list)
+        local children = list:attributeValue("AXChildren") or {}
+        if not index or #children < 2 or not list:isAttributeSettable("AXSelectedChildren") then
+            nativeFailed(nav, "macos-selection-unavailable")
+            done()
+            return
+        end
+        local target = children[(index - 1 + direction) % #children + 1]
+        local changed = list:setAttributeValue("AXSelectedChildren", {target})
+        if not changed or nativeSelection(list) ~= target then
+            nativeFailed(nav, "macos-selection-failed")
+        end
+        done()
+        return
+    end
+    -- Never take over a keyboard-owned switcher or release a real modifier.
+    local modifiers = hs.eventtap.checkKeyboardModifiers()
+    if nativeList() or modifiers.cmd or modifiers.ctrl or modifiers.alt
+        or modifiers.shift or modifiers.fn then done(); return end
+    local app = hs.application.frontmostApplication()
+    local win = app and app:focusedWindow()
+    local nav = {backend = "macos", originPid = app and app:pid(),
+                 originWindowId = win and win:id()}
+    if not nav.originPid then done(); return end
+    windowNav = nav
+    nativeOwner = nav
+    switcherError = nil
+    local mods = direction > 0 and {"cmd"} or {"cmd", "shift"}
+    event.newKeyEvent(mods, "tab", true):post()
+    event.newKeyEvent(mods, "tab", false):post()
+    event.newEvent():setType(0):setFlags({}):post()
+    local function settled(attempts)
+        local list = nativeList()
+        if list then
+            nav.list = list
+            if nav.cancelled or generation ~= windowQueueGeneration then
+                cancelNative(nav)
+                return
+            end
+            if not originStillFocused(nav) or not nativeSelection(list) then
+                nativeFailed(nav, "macos-open-interrupted")
+            end
+            done()
+        elseif attempts > 1 then
+            hs.timer.doAfter(0.05, function()
+                local ok, err = pcall(settled, attempts - 1)
+                if not ok then receiverFailed(err) end
+            end)
+        else
+            if nativeOwner == nav then nativeOwner = nil end
+            if generation == windowQueueGeneration then
+                nativeFailed(nav, "macos-switcher-unavailable")
+                done()
+            end
+        end
+    end
+    hs.timer.doAfter(0, function()
+        local ok, err = pcall(settled, 12)
+        if not ok then receiverFailed(err) end
+    end)
+end
+
+local function commitNative(generation, done)
+    local nav = windowNav
+    windowNav = nil
+    local list = nativeList()
+    if not nav or not list or list ~= nav.list or not originStillFocused(nav) then
+        if nav then cancelNative(nav) end
+        done(nil)
+        return
+    end
+    local selected = nativeSelection(list)
+    if not selected then cancelNative(nav); done(nil); return end
+    -- Resolve a unique application for a following copy/paste shortcut. If two
+    -- apps share a display name, select normally but skip the queued shortcut.
+    local name = selected:attributeValue("AXTitle")
+    local pid, matches = nil, 0
+    for _, app in ipairs(hs.application.runningApplications()) do
+        if app:name() == name then pid = app:pid(); matches = matches + 1 end
+    end
+    local confirmed = list:performAction("AXConfirm")
+    if not confirmed then
+        cancelNative(nav)
+        switcherError = "macos-confirm-failed"
+        done(nil)
+        return
+    end
+    local function finished(attempts)
+        if generation ~= windowQueueGeneration then return end
+        if nativeList() ~= list then
+            if nativeOwner == nav then nativeOwner = nil end
+            done(matches == 1 and {pid = pid} or nil)
+        elseif attempts > 1 then
+            hs.timer.doAfter(0.05, function() runSafely(function() finished(attempts - 1) end) end)
+        else
+            cancelNative(nav)
+            switcherError = "macos-confirm-timeout"
+            done(nil)
+        end
+    end
+    hs.timer.doAfter(0, function() runSafely(function() finished(10) end) end)
+end
+
 local function postAltTabLeft(count, generation, done)
     if generation ~= windowQueueGeneration then return end
     if count <= 0 then done(true); return end
@@ -255,6 +417,28 @@ end
 
 local function stepWindow(direction, generation, done)
     if generation ~= windowQueueGeneration then return end
+    if nativeHoldCancelled then done(); return end
+    -- A reset can happen while the Dock is still opening or confirming. Finish
+    -- cleaning up that owned UI before another hold is allowed to open one.
+    if nativeOwner and not windowNav then done(); return end
+    if windowNav and windowNav.backend == "macos" then
+        stepNative(direction, generation, done)
+        return
+    end
+    if not windowNav then
+        local app = hs.application.get(ALT_TAB_BUNDLE)
+        if not app then stepNative(direction, generation, done); return end
+        -- Use the running copy, including ~/Applications or a renamed bundle.
+        local path = app:path()
+        if not path then
+            switcherError = "alttab-path-unavailable"
+            done()
+            return
+        end
+        altTabPath = path .. "/Contents/MacOS/AltTab"
+        selectedBackend = "alttab"
+        switcherError = nil
+    end
     if windowNav then
         if not originStillFocused(windowNav) then
             abortNavigation(generation, "alttab-navigation-cancelled-foreground-changed", done)
@@ -295,7 +479,12 @@ local function stepWindow(direction, generation, done)
     altTabState(function(state)
         if generation ~= windowQueueGeneration then return end
         -- Leave a keyboard-owned AltTab session alone.
-        if not state or state.switcherVisible then done(); return end
+        if not state or type(state.switcherVisible) ~= "boolean" then
+            switcherError = "alttab-incompatible-or-unavailable"
+            done()
+            return
+        end
+        if state.switcherVisible then done(); return end
         local originApp = hs.application.frontmostApplication()
         local originWin = originApp and originApp:focusedWindow() or nil
         local originPid = originApp and originApp:pid() or nil
@@ -321,6 +510,7 @@ local function stepWindow(direction, generation, done)
                     return
                 end
                 windowNav = {
+                    backend = "alttab",
                     originPid = originPid,
                     originWindowId = originWindowId,
                     readyAt = openedAt + 0.15,
@@ -338,6 +528,7 @@ end
 local function commitWindow(generation, done)
     if generation ~= windowQueueGeneration then return end
     if not windowNav then done(nil); return end
+    if windowNav.backend == "macos" then commitNative(generation, done); return end
     local nav = windowNav
     windowNav = nil
     if not originStillFocused(nav) then
@@ -429,7 +620,10 @@ flushWindowActions = function(generation)
     elseif action.kind == "click" then
         commitAndClick(action.key, generation, nextAction)
     elseif action.kind == "release" then
-        commitWindow(generation, function() nextAction() end)
+        commitWindow(generation, function()
+            nativeHoldCancelled = false
+            nextAction()
+        end)
     end
 end
 
@@ -619,6 +813,11 @@ end
 
 local function dispatch(action)
     note(action)
+    if action >= ACTION.thirdWheelUp and action <= ACTION.thirdSelectAll then
+        thirdReleased = false
+    elseif action == ACTION.thirdRelease then
+        thirdReleased = true
+    end
     if action == ACTION.thumbWheelUp then
         switchTab(true)
     elseif action == ACTION.thumbWheelDown then
@@ -642,7 +841,27 @@ local function dispatch(action)
     end
 end
 
-local keyWatcher = hs.eventtap.new({types.keyDown, types.keyUp}, function(e)
+local pointerTypes = {
+    [types.scrollWheel] = true, [types.leftMouseDown] = true,
+    [types.rightMouseDown] = true, [types.otherMouseDown] = true,
+}
+local keyWatcher = hs.eventtap.new({types.keyDown, types.keyUp, types.scrollWheel,
+                                  types.leftMouseDown, types.rightMouseDown,
+                                  types.otherMouseDown}, function(e)
+    if pointerTypes[e:getType()] then
+        -- The runtime starts the helper's head-insert session tap AFTER this
+        -- receiver. Mapped MX events are consumed there, before reaching us.
+        -- Everything arriving here keeps its original event and flags. Cancel
+        -- only our native UI; a keyboard-owned switcher is left alone.
+        if nativeOwner then
+            -- A physical release may already be queued. Do not require a
+            -- second release if cancelling also discards that queued action.
+            nativeHoldCancelled = not thirdReleased
+            local ok, err = pcall(clearNavigation)
+            if not ok then receiverFailed(err) end
+        end
+        return false
+    end
     if e:getKeyCode() ~= F15 then return false end
     local marker = e:getProperty(fields.eventSourceUserData) or 0
     local action = marker - TAG_BASE
@@ -667,6 +886,8 @@ mx4 = {
             receiverHealthy = receiverHealthy,
             receiverError = receiverError,
             navigating = windowNav ~= nil,
+            windowBackend = selectedBackend,
+            switcherError = switcherError,
             helperPID = helperPID,
             lastTaggedSourcePID = lastTaggedSourcePID,
         }
