@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-version=${1:-v0.4.0}
+version=${1:-v0.5.0}
 if ! printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-    printf 'Expected a version such as v0.4.0\n' >&2
+    printf 'Expected a version such as v0.5.0\n' >&2
     exit 2
 fi
 
@@ -25,6 +25,8 @@ cp "$repo_dir/hammerspoon/mx4-safe-init.lua" "$package_dir/mx4-safe-init.lua"
 cp "$repo_dir/hammerspoon/mx4-helper-runtime.lua" "$package_dir/mx4-helper-runtime.lua"
 cp "$repo_dir/scripts/install.sh" "$package_dir/install.sh"
 cp "$repo_dir/README.md" "$package_dir/README.md"
+mkdir -p "$package_dir/docs"
+cp "$repo_dir/docs/openlogi.md" "$package_dir/docs/openlogi.md"
 cp "$repo_dir/LICENSE" "$package_dir/LICENSE"
 cp "$repo_dir/THIRD_PARTY_NOTICES.md" "$package_dir/THIRD_PARTY_NOTICES.md"
 chmod 755 "$package_dir/mx4-device-helper" "$package_dir/install.sh"

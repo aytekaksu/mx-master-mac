@@ -22,4 +22,6 @@ The native helper's HID sender identification approach was informed by [LinearMo
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-Hammerspoon, AltTab, and Logi Options+ are installed separately. Their code is not included in this repository.
+Hammerspoon, AltTab, OpenLogi, and Logi Options+ are installed separately. Their code is not included in this repository.
+
+[OpenLogi](https://github.com/AprilNEA/OpenLogi) is distributed by its authors under MIT/Apache-2.0 (with separate terms for its brand assets and HID++ crate). The installer downloads their official signed release; this project does not redistribute or rebrand OpenLogi code or artwork.

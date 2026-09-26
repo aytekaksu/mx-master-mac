@@ -1,6 +1,6 @@
 CC = xcrun clang
 CFLAGS = -Wall -Wextra -Werror -mmacosx-version-min=13.0 -arch arm64 -arch x86_64
-FRAMEWORKS = -framework ApplicationServices -framework Carbon -framework IOKit
+FRAMEWORKS = -framework ApplicationServices -framework Carbon -framework IOKit -framework Security
 
 .PHONY: all test package clean
 all: build/mx4-device-helper
