@@ -3,9 +3,9 @@ set -eu
 
 # This file is served from the matching versioned Git tag. Update the archive
 # digest when packaging a new release; never execute an unchecked download.
-version=v0.4.0
+version=v0.5.0
 package_name="mx-master-mac-$version-macos-universal"
-package_sha256=1d2b84c046d1a444ef9d3fd95f6eadafa4431d37bb5fb4c13df6189886809b79
+package_sha256=3262f2b7b5142cd4e1517665b1324398df06b2c4381394929c6de55028fef9f1
 hammerspoon_sha256=11bb1c90faf5427f37c7bd4fe7eab9774ae43e1d5cb020c5b3088dac32849efa
 alttab_sha256=0bb2f23b061636173b288b19f3f5412a8ad33f5ac6826a317f0ed28e7b64afe8
 apps_dir=/Applications
@@ -14,6 +14,8 @@ logi_agent='/Library/Application Support/Logitech.localized/LogiOptionsPlus/logi
 app_stage=''
 app_stage_sudo=0
 logi_incomplete=0
+openlogi_mount=''
+provider=optionsplus
 install_alttab=0
 
 fail() {
@@ -80,6 +82,9 @@ cleanup_app_stage() {
 
 cleanup() {
     cleanup_app_stage
+    if [ -n "$openlogi_mount" ]; then
+        /usr/bin/hdiutil detach "$openlogi_mount" -quiet || true
+    fi
     /bin/rm -r "$work_dir"
 }
 
@@ -143,7 +148,25 @@ if [ "$install_alttab" -eq 1 ]; then
     check_team "$work_dir/alttab/AltTab.app" QXD7GW8FHY
 fi
 
-if [ -e "$logi_app" ] || [ -L "$logi_app" ] || [ -e "$logi_agent" ] || [ -L "$logi_agent" ]; then
+# Prefer an existing OpenLogi; preserve an existing Options+ installation.
+# Never install a second HID++ provider automatically beside the first one.
+openlogi_path=$(/usr/bin/osascript -l JavaScript -e '
+    ObjC.import("AppKit");
+    var url = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier("org.openlogi.openlogi");
+    if (!url.isNil()) ObjC.unwrap(url.path);
+' 2>/dev/null || true)
+if [ -z "$openlogi_path" ] && { [ -e "$apps_dir/OpenLogi.app" ] || [ -L "$apps_dir/OpenLogi.app" ]; }; then
+    openlogi_path="$apps_dir/OpenLogi.app"
+fi
+if [ -n "$openlogi_path" ]; then
+    [ -d "$openlogi_path" ] || fail 'The existing OpenLogi path is not an app; repair it before rerunning.'
+    check_team "$openlogi_path" 8U3ZJ258K9
+    provider=openlogi
+    printf 'Keeping existing OpenLogi at %s. Use version 0.8.8 or newer.\n' "$openlogi_path"
+    if [ -e "$logi_app" ] || [ -e "$logi_agent" ]; then
+        printf 'Both providers are installed. Quit Options+ and stop its background agent before using OpenLogi.\n'
+    fi
+elif [ -e "$logi_app" ] || [ -L "$logi_app" ] || [ -e "$logi_agent" ] || [ -L "$logi_agent" ]; then
     if [ -e "$logi_app" ] || [ -L "$logi_app" ]; then
         [ -d "$logi_app" ] || fail 'The existing Logi Options+ path is not an app; repair it before rerunning.'
         check_team "$logi_app" QED4VVPZWA
@@ -152,17 +175,24 @@ if [ -e "$logi_app" ] || [ -L "$logi_app" ] || [ -e "$logi_agent" ] || [ -L "$lo
         logi_incomplete=1
     fi
 else
-    printf 'Downloading Logi Options+ from Logitech…\n'
-    download 'https://download01.logi.com/web/ftp/pub/techsupport/optionsplus/logioptionsplus_installer.zip' "$work_dir/logioptionsplus.zip"
-    /bin/mkdir "$work_dir/logi"
-    /usr/bin/ditto -xk "$work_dir/logioptionsplus.zip" "$work_dir/logi"
-    logi_installer="$work_dir/logi/logioptionsplus_installer.app"
-    if [ ! -d "$logi_installer" ]; then
-        logi_installer="$work_dir/logi/Logi Options+ Installer.app"
-    fi
-    [ -d "$logi_installer" ] || fail 'Logitech changed its installer layout; no apps were installed.'
-    check_team "$logi_installer" QED4VVPZWA
-    /usr/sbin/spctl --assess --type execute "$logi_installer" || fail 'macOS did not approve the Logitech installer.'
+    provider=openlogi
+    case "$(/usr/bin/uname -m)" in
+        arm64)
+            openlogi_arch=arm64
+            openlogi_sha256=be8a89bf36712d0a20db3c4df2b20ecfebbc1a44d9242fcc4d42ebaa4fdb9495 ;;
+        x86_64)
+            openlogi_arch=x86_64
+            openlogi_sha256=28a1bea803c55720818deddb1d151a058e9ca36fa01b603e532cdacacbf7b991 ;;
+        *) fail 'OpenLogi requires an Apple Silicon or Intel Mac.' ;;
+    esac
+    printf 'Downloading OpenLogi 0.8.8 (%s)…\n' "$openlogi_arch"
+    download "https://github.com/AprilNEA/OpenLogi/releases/download/v0.8.8/OpenLogi-v0.8.8-macos-$openlogi_arch.dmg" "$work_dir/openlogi.dmg"
+    check_sha256 "$work_dir/openlogi.dmg" "$openlogi_sha256"
+    /bin/mkdir "$work_dir/openlogi-mount"
+    /usr/bin/hdiutil attach -readonly -nobrowse -quiet -mountpoint "$work_dir/openlogi-mount" "$work_dir/openlogi.dmg"
+    openlogi_mount="$work_dir/openlogi-mount"
+    check_team "$openlogi_mount/OpenLogi.app" 8U3ZJ258K9
+    /usr/sbin/spctl --assess --type execute "$openlogi_mount/OpenLogi.app" || fail 'macOS did not approve OpenLogi.'
 fi
 
 if [ -d "$work_dir/hammerspoon/Hammerspoon.app" ]; then
@@ -176,30 +206,30 @@ else
     printf 'AltTab is optional; no AltTab download was installed.\n'
 fi
 
-installed_logi=0
-if [ -n "${logi_installer:-}" ]; then
-    printf 'Installing Logi Options+ (macOS may ask for an administrator password)…\n'
-    /usr/bin/sudo "$logi_installer/Contents/MacOS/logioptionsplus_installer" --quiet
-    installed_logi=1
-else
+if [ -n "$openlogi_mount" ]; then
+    copy_app_if_missing "$openlogi_mount/OpenLogi.app" OpenLogi.app 8U3ZJ258K9
+elif [ "$provider" = optionsplus ]; then
     printf 'Keeping existing Logi Options+.\n'
 fi
 
 /bin/sh "$package_dir/install.sh"
 
 printf '\nMX Master Mac files are installed. Finish these setup steps:\n'
-if [ "$installed_logi" -eq 1 ]; then
-    printf '• Restart your Mac so the new Logi Options+ installation can finish.\n'
+if [ "$provider" = openlogi ]; then
+    printf '• Open OpenLogi and grant OpenLogi Agent Accessibility and Input Monitoring.\n'
+    printf '• Follow the OpenLogi setup guide to assign held F13/F14 and preserve raw wheel events:\n'
+    printf '  https://github.com/aytekaksu/mx-master-mac/blob/%s/docs/openlogi.md\n' "$version"
+else
+    printf '• In Logi Options+, set the MX thumb button to F13 and the third side button to F14.\n'
 fi
-printf '• In Logi Options+, set the MX thumb button to F13 and the third side button to F14.\n'
-printf '• Grant the macOS permissions requested by Logi Options+, Hammerspoon, and the helper.\n'
+printf '• Grant the macOS permissions requested by Hammerspoon and the helper.\n'
 printf '• Start Hammerspoon, or reload it if it was already running.\n'
 printf '• If using AltTab, start it and grant its Accessibility and Screen Recording permissions.\n'
 printf '• The window wheel detects a running AltTab. Quit AltTab to use the macOS app switcher.\n'
-if [ ! -x "$logi_agent" ]; then
+if [ "$provider" = optionsplus ] && [ ! -x "$logi_agent" ]; then
     printf 'Logi Options+ is not ready yet. Restart, then check its installation if needed.\n'
 fi
-printf 'Hammerspoon and AltTab were not launched or reloaded by this script.\n'
+printf 'Apps were not launched or reloaded by this script.\n'
 if [ "$logi_incomplete" -eq 1 ]; then
     fail 'Existing Logi Options+ is incomplete. The MX files were installed; restart or repair Logi Options+ before using them.'
 fi

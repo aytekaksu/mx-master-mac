@@ -11,6 +11,7 @@
 #import <IOKit/IOKitLib.h>
 #import <IOKit/hid/IOHIDDeviceKeys.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <Security/Security.h>
 #include <libproc.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -38,8 +39,8 @@ extern uint64_t IOHIDEventGetSenderID(IOHIDEventRef event);
 enum {
     kMXVendorID = 1133,
     kMXProductID = 45122,
-    kThumbKeyCode = 105, // F13 from Logi Options+
-    kThirdKeyCode = 107, // F14 from Logi Options+
+    kThumbKeyCode = 105, // F13 held by the configured mouse provider
+    kThirdKeyCode = 107, // F14 held by the configured mouse provider
     kMarkerKeyCode = 113, // F15 received by Hammerspoon
     kMarkerBase = 0x4D5800,
     kSenderCacheSize = 64,
@@ -213,6 +214,59 @@ static bool trustedLogiAgentPID(int64_t pidValue) {
     char path[PROC_PIDPATHINFO_MAXSIZE] = {0};
     int length = proc_pidpath((pid_t)pidValue, path, sizeof(path));
     return length > 0 && strcmp(path, kLogiAgentPath) == 0;
+}
+
+// OpenLogi's signed background agent, not its GUI or CLI, emits HoldShortcut
+// edges. Permit installation outside /Applications, but require both its exact
+// nested executable suffix and upstream's Developer ID identity. Never trust a
+// process merely because it calls itself "openlogi-agent".
+static bool openLogiAgentPath(const char *path) {
+    static const char suffix[] =
+        ".app/Contents/Library/LoginItems/OpenLogi Agent.app/Contents/MacOS/openlogi-agent";
+    size_t length = strlen(path), suffixLength = strlen(suffix);
+    return length > suffixLength && strcmp(path + length - suffixLength, suffix) == 0;
+}
+
+static bool trustedOpenLogiAgentPID(int64_t pidValue) {
+    if (pidValue <= 0 || pidValue > INT_MAX) return false;
+    pid_t pid = (pid_t)pidValue;
+    char path[PROC_PIDPATHINFO_MAXSIZE] = {0};
+    if (proc_pidpath(pid, path, sizeof(path)) <= 0 || !openLogiAgentPath(path)) return false;
+    struct proc_bsdinfo info = {0};
+    if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info)) return false;
+    // Cache expensive signature validation by process incarnation. A restarted
+    // agent or a reused PID must be checked again; path is checked on every call.
+    static pid_t checkedPID;
+    static uint64_t checkedSeconds, checkedMicros;
+    static bool checkedResult;
+    if (checkedPID == pid && checkedSeconds == info.pbi_start_tvsec &&
+        checkedMicros == info.pbi_start_tvusec) return checkedResult;
+    checkedPID = pid;
+    checkedSeconds = info.pbi_start_tvsec;
+    checkedMicros = info.pbi_start_tvusec;
+    checkedResult = false;
+    CFNumberRef value = CFNumberCreate(NULL, kCFNumberIntType, &pid);
+    const void *keys[] = { kSecGuestAttributePid };
+    const void *values[] = { value };
+    CFDictionaryRef attributes = CFDictionaryCreate(NULL, keys, values, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    SecCodeRef code = NULL;
+    SecRequirementRef requirement = NULL;
+    if (SecCodeCopyGuestWithAttributes(NULL, attributes, kSecCSDefaultFlags, &code) == errSecSuccess &&
+        SecRequirementCreateWithString(CFSTR(
+            "anchor apple generic and identifier \"org.openlogi.agent\" and "
+            "certificate leaf[subject.OU] = \"8U3ZJ258K9\""),
+            kSecCSDefaultFlags, &requirement) == errSecSuccess)
+        checkedResult = SecCodeCheckValidity(code, kSecCSDefaultFlags, requirement) == errSecSuccess;
+    if (requirement) CFRelease(requirement);
+    if (code) CFRelease(code);
+    CFRelease(attributes);
+    CFRelease(value);
+    return checkedResult;
+}
+
+static bool trustedLayerProviderPID(int64_t pid) {
+    return trustedLogiAgentPID(pid) || trustedOpenLogiAgentPID(pid);
 }
 
 static bool pointsWithMouseUsage(io_registry_entry_t service) {
@@ -633,7 +687,7 @@ static CGEventRef bridgeEvent(CGEventTapProxy proxy, CGEventType type,
         int64_t keyCode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
         if (keyCode == kThumbKeyCode || keyCode == kThirdKeyCode) {
             int64_t sourcePID = CGEventGetIntegerValueField(event, kCGEventSourceUnixProcessID);
-            bool trusted = trustedLogiAgentPID(sourcePID);
+            bool trusted = trustedLayerProviderPID(sourcePID);
             if (!trusted) {
                 if (!bridge->active) {
                     fprintf(stdout, "ignore layer F%lld sourcePID=%lld reason=untrusted\n",
@@ -683,7 +737,7 @@ static CGEventRef bridgeEvent(CGEventTapProxy proxy, CGEventType type,
         type != kCGEventRightMouseDragged &&
         type != kCGEventScrollWheel) return event;
 
-    if (bridge->layerSourcePID != 0 && !trustedLogiAgentPID(bridge->layerSourcePID))
+    if (bridge->layerSourcePID != 0 && !trustedLayerProviderPID(bridge->layerSourcePID))
         resetLayerState(bridge);
 
     uint64_t senderID = eventSenderID(event);
@@ -691,6 +745,9 @@ static CGEventRef bridgeEvent(CGEventTapProxy proxy, CGEventType type,
     int64_t sourcePID = CGEventGetIntegerValueField(event, kCGEventSourceUnixProcessID);
     bool trustedSource = senderID == 0 && type == kCGEventScrollWheel &&
                          trustedLogiAgentPID(sourcePID);
+    // OpenLogi can synthesize scrolling for multiple kinds of mice. Its PID
+    // alone is NOT proof of MX origin. Keep its wheel raw (smooth_scroll=false,
+    // vertical_scroll_sensitivity=14) so the physical HID sender survives.
     LogitechPointerInventory inventory = {0};
     if (trustedSource) inventory = connectedLogitechPointers();
     PointerOrigin origin = classifyPointerOrigin(type, senderID, verifiedPhysicalMX,
@@ -766,8 +823,8 @@ int main(int argc, char **argv) {
         LogitechPointerInventory inventory = connectedLogitechPointers();
         PointerOrigin origin = classifyPointerOrigin(kCGEventScrollWheel, 0, false,
                                                      trusted, inventory);
-        fprintf(stdout, "logiPID=%ld trusted=%d inventoryValid=%d logiPointers=%u soleMX=%d sender0ScrollOrigin=%d\n",
-                pid, trusted, inventory.valid, inventory.logitechPointingCount,
+        fprintf(stdout, "providerPID=%ld optionsPlus=%d openLogi=%d inventoryValid=%d logiPointers=%u soleMX=%d sender0ScrollOrigin=%d\n",
+                pid, trusted, trustedOpenLogiAgentPID(pid), inventory.valid, inventory.logitechPointingCount,
                 inventory.solePointingDeviceIsMX, origin);
         return 0;
     }

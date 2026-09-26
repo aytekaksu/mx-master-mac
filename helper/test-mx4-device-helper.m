@@ -7,6 +7,19 @@
 #include <signal.h>
 #include <sys/wait.h>
 
+static void testProviderIdentity(void) {
+    assert(openLogiAgentPath("/Applications/OpenLogi.app/Contents/Library/LoginItems/OpenLogi Agent.app/Contents/MacOS/openlogi-agent"));
+    assert(openLogiAgentPath("/Users/example/Apps/Mouse.app/Contents/Library/LoginItems/OpenLogi Agent.app/Contents/MacOS/openlogi-agent"));
+    assert(!openLogiAgentPath("/tmp/openlogi-agent"));
+    assert(!openLogiAgentPath("/Applications/OpenLogi.app/Contents/MacOS/openlogi-desktop"));
+    assert(!openLogiAgentPath("/Applications/OpenLogi.app/Contents/MacOS/openlogi"));
+    assert(!openLogiAgentPath(""));
+    assert(!trustedLayerProviderPID(0));
+    assert(!trustedLayerProviderPID(-1));
+    assert(!trustedLayerProviderPID((int64_t)INT_MAX + 1));
+    assert(!trustedLayerProviderPID(getpid()));
+}
+
 static void testClassifier(void) {
     LogitechPointerInventory soleMX = { .valid = true, .logitechPointingCount = 1,
                                         .solePointingDeviceIsMX = true };
@@ -290,6 +303,7 @@ static void testNonblockingExitDiagnostics(void) {
 }
 
 int main(void) {
+    testProviderIdentity();
     testClassifier();
     testNegativeSenderCache();
     testThumbClickPairing();
