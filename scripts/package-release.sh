@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-version=${1:-v0.3.0}
+version=${1:-v0.4.0}
 if ! printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-    printf 'Expected a version such as v0.3.0\n' >&2
+    printf 'Expected a version such as v0.4.0\n' >&2
     exit 2
 fi
 
