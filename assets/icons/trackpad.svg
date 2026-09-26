@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+<!-- Mouse traced from a PNG supplied by the repository owner; original artwork rights remain with its author. Trackpad geometry and composition: Copyright (c) 2026 Aytek Aksu, MIT. No traced Icons8 trackpad paths are included in this logo. -->
+<title id="title">Trackpad frame</title>
+<desc id="desc">Original rounded trackpad drawing with two lower click areas.</desc>
+<path id="trackpad-frame" d="M30 39H25C17.268 39 11 45.268 11 53V106C11 113.732 17.268 120 25 120H103C110.732 120 117 113.732 117 106V53C117 45.268 110.732 39 103 39H98" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="trackpad-buttons" d="M12 94H116M64 95V119" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
