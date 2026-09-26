@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-    <img src="assets/logo.svg" alt="MX Master Mac — an MX Master inside an Apple Magic Trackpad" width="176" height="176">
+    <img src="assets/logo.svg" alt="MX Master Mac — a mouse silhouette above a trackpad" width="176" height="176">
   </picture>
 </p>
 

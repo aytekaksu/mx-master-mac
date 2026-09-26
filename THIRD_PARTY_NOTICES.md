@@ -28,8 +28,8 @@ Hammerspoon, AltTab, OpenLogi, and Logi Options+ are installed separately. Their
 
 ## Logo artwork
 
-The mouse is adapted from the [MX Master SVG in libratbag v0.5](https://github.com/libratbag/libratbag/blob/821e2798b9af80f932f18c0e2cbdad5c905d7f94/data/logitech-mx_master.svg), under its MIT license (Copyright © 2015 Red Hat, Inc.).
+The current mouse silhouette is a vector trace of a PNG supplied by the repository owner. Its upstream author and license were not supplied. Tracing does not change the underlying artwork rights, and this project's MIT code license does not relicense third-party artwork.
 
-The trackpad is adapted from [Apple Magic Trackpad.svg](https://commons.wikimedia.org/wiki/File:Apple_Magic_Trackpad.svg), vector by Gringer, based on a photograph by Micky Aldridge, under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). It is converted to monochrome with heavier outlines and scaled. The mouse is converted to monochrome and rotated 90° clockwise.
+The trackpad geometry and composition are original contributions by Aytek Aksu (2026), under MIT. The published artwork includes no traced Icons8 trackpad paths or files. The earlier libratbag and Wikimedia illustrations have been replaced.
 
-Original composition contributions are MIT licensed; third-party artwork retains its licenses and attribution requirements. The [original SVGs and license notices](assets/sources/) are included, and the composed SVGs retain the notices. See [source revisions and adaptation details](assets/README.md).
+See [artwork provenance and editing instructions](assets/README.md).
