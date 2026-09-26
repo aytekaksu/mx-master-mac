@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="MX Master Mac — an MX Master inside an Apple Magic Trackpad" width="176" height="176">
+  </picture>
+</p>
+
 # MX Master Mac
 
 **The way to use your MX Master 4 on a Mac—without missing the trackpad.**
@@ -96,4 +103,8 @@ These are plans, not features in this release. The current setup uses AltTab's i
 
 ## Contributing and license
 
-Issues and pull requests are welcome. Changes to `main` require the repository owner's review; see [CONTRIBUTING.md](CONTRIBUTING.md). This project is [MIT licensed](LICENSE). Hammerspoon, AltTab, OpenLogi, and Logi Options+ are separate dependencies with their own licenses. The helper's HID sender technique was informed by LinearMouse; see [third-party notices](THIRD_PARTY_NOTICES.md).
+Issues and pull requests are welcome. Changes to `main` require the repository owner's review; see [CONTRIBUTING.md](CONTRIBUTING.md). The code is [MIT licensed](LICENSE); logo artwork has [separate attribution notices](assets/README.md). Hammerspoon, AltTab, OpenLogi, and Logi Options+ are separate dependencies with their own licenses. The helper's HID sender technique was informed by LinearMouse; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
+## Logo
+
+[Logo files and artwork credits](assets/README.md).

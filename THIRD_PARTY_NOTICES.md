@@ -25,3 +25,11 @@ The native helper's HID sender identification approach was informed by [LinearMo
 Hammerspoon, AltTab, OpenLogi, and Logi Options+ are installed separately. Their code is not included in this repository.
 
 [OpenLogi](https://github.com/AprilNEA/OpenLogi) is distributed by its authors under MIT/Apache-2.0 (with separate terms for its brand assets and HID++ crate). The installer downloads their official signed release; this project does not redistribute or rebrand OpenLogi code or artwork.
+
+## Logo artwork
+
+The mouse is adapted from the [MX Master SVG in libratbag v0.5](https://github.com/libratbag/libratbag/blob/821e2798b9af80f932f18c0e2cbdad5c905d7f94/data/logitech-mx_master.svg), under its MIT license (Copyright © 2015 Red Hat, Inc.).
+
+The trackpad is adapted from [Apple Magic Trackpad.svg](https://commons.wikimedia.org/wiki/File:Apple_Magic_Trackpad.svg), vector by Gringer, based on a photograph by Micky Aldridge, under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). It is converted to monochrome with heavier outlines and scaled. The mouse is converted to monochrome and rotated 90° clockwise.
+
+Original composition contributions are MIT licensed; third-party artwork retains its licenses and attribution requirements. The [original SVGs and license notices](assets/sources/) are included, and the composed SVGs retain the notices. See [source revisions and adaptation details](assets/README.md).
