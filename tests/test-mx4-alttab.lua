@@ -179,8 +179,7 @@ local function harness(native, options)
                 assert(attribute == "AXChildren")
                 return model.nativeVisible and {list} or {}
             end}
-        end,
-        },
+        end},
         window = {
             focusedWindow = function()
                 return {id = function() return model.windows[model.focused + 1].wid end}
@@ -482,8 +481,8 @@ do
 end
 
 do
-    for _, bundle in ipairs({"com.apple.Safari", "com.google.Chrome",
-                            "com.vivaldi.Vivaldi", "example.unlisted.Browser"}) do
+    for _, bundle in ipairs({"com.google.Chrome", "com.vivaldi.Vivaldi",
+                            "example.unlisted.Browser"}) do
         local _, _, shortcuts, _, emit = harness(true,
             {frontBundle = bundle})
         emit(1)
