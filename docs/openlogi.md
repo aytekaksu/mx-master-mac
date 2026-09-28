@@ -27,7 +27,7 @@ Open OpenLogi from Applications. Grant **OpenLogi Agent** both **Accessibility**
 /Applications/OpenLogi.app/Contents/Library/LoginItems/OpenLogi Agent.app
 ```
 
-Use the permission screen's **+**, then **Command+Shift+G** to paste that path if needed. The desktop app and the agent have different permission identities. Enable OpenLogi's launch-at-login setting if you want it available after a restart.
+Use the permission screen's **+**, then **Command+Shift+G** to paste that path if needed. The desktop app and the agent have different permission identities. Enable OpenLogi's launch-at-login setting and Hammerspoon's **Launch at Login** setting so the agent and macros start after a restart.
 
 Connect the MX Master 4 and let it appear in OpenLogi. Close OpenLogi's settings window before editing its file.
 
