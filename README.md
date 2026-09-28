@@ -68,7 +68,7 @@ Hammerspoon: browser shortcuts + automatic switcher detection
 Your browser, Apple's app icons, or AltTab's window thumbnails
 ```
 
-The helper consumes a wheel or click only when it recognizes the MX Master 4 action. Trackpad and unknown-device input pass through. Browser tabs do **not** need AltTab: Vivaldi uses its visible tab list through Accessibility and AppleScript; Safari, Chrome, Firefox, Brave, and Edge use their built-in shortcuts. Other apps get a Control+Tab fallback, which may not work everywhere.
+The helper consumes a wheel or click only when it recognizes the MX Master 4 action. Trackpad and unknown-device input pass through. Browser tabs do **not** need AltTab: Vivaldi uses its visible tab list through Accessibility and AppleScript; Safari, Chrome, Firefox, Brave, and Edge use their built-in shortcuts. Hammerspoon requests Vivaldi's tab accessibility tree when Vivaldi starts. If it is still loading after login, the first wheel step waits briefly instead of being lost. If the tree remains unavailable, Vivaldi uses its built-in Control+Tab shortcut, which follows your Tab Cycling setting. Other apps get a Control+Tab fallback, which may not work everywhere.
 
 ### Which switcher will I see?
 
@@ -88,7 +88,7 @@ For macOS, Hammerspoon opens the native switcher and uses Accessibility to selec
 Quit Hammerspoon to stop the macros; reopen it to resume. In Hammerspoon's console, `mx4runtime.pause()` and `mx4runtime.resume()` also work. `mx4runtime.status()` reports whether the helper is running. After a wheel gesture, `mx4.status()` reports `windowBackend` (`macos` or `alttab`) and any `switcherError`.
 
 - No mouse actions: check the F13/F14 mappings and macOS permissions, then reload Hammerspoon.
-- Tabs fail only in Vivaldi: allow Hammerspoon Accessibility and Vivaldi Automation.
+- Tabs fail only in Vivaldi: allow Hammerspoon Accessibility and Vivaldi Automation. After login, the first wheel step may take about two seconds while Vivaldi exposes its tab list. In Hammerspoon's console, `mx4.trace()` shows `tab-vivaldi-fallback` when Vivaldi's accessibility tree stays unavailable; check that Control+Tab is still assigned to tab cycling in Vivaldi's keyboard settings.
 - Native app switching fails: check Hammerspoon's Accessibility permission and that Command+Tab opens Apple's switcher. Other apps that replace Command+Tab may conflict.
 - AltTab switching fails: check its permissions and version. If its CLI is incompatible or unavailable, update or quit AltTab to use macOS. We leave a running AltTab's shortcuts alone instead of sending keystrokes into a conflicting switcher.
 - Wheel actions fail with another Logitech mouse connected: the current helper accepts senderless Logi wheel events only when the MX Master 4 is the sole connected Logitech pointing device.
