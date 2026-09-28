@@ -4,7 +4,8 @@ local realHs = hs
 local source = debug.getinfo(1, "S").source:sub(2)
 local candidate = source:gsub("tests/test%-mx4%-alttab%.lua$", "hammerspoon/mx4-safe-init.lua")
 
-local function harness(native)
+local function harness(native, options)
+    options = options or {}
     local queue, commands, shortcuts = {}, {}, {}
     local now = 1
     local directedKeys = {}
@@ -14,6 +15,15 @@ local function harness(native)
         {index = 2, wid = 103, pid = 203, title = "Three"},
     }}
     model.altTabRunning = not native
+    model.vivaldi = options.vivaldi == true
+    model.vivaldiRunning = options.vivaldiRunning ~= false
+    model.axReady = false
+    model.axWillReady = options.axWillReady ~= false
+    model.axRequested = false
+    model.axRequests = 0
+    model.appleScripts = {}
+    model.windowID = 100
+    model.windowUnavailableUntilAX = options.windowUnavailableUntilAX == true
     local watcher
     local modifiers = {}
     local nativeKeys = {}
@@ -50,6 +60,30 @@ local function harness(native)
             return true
         end,
     }
+    local vivaldiApp = {
+        vivaldi = true,
+        pid = function() return 501 end,
+        bundleID = function() return "com.vivaldi.Vivaldi" end,
+    }
+    model.vivaldiApp = vivaldiApp
+    local tabs = {}
+    for index = 1, 3 do
+        local id = index
+        tabs[index] = {attributeValue = function(_, attribute)
+            if attribute == "AXDOMIdentifier" then return "tab-" .. id end
+            if attribute == "AXSelected" then return id == 1 end
+        end}
+    end
+    local tabGroup = {attributeValue = function(_, attribute)
+        if attribute == "AXRole" then return "AXTabGroup" end
+        if attribute == "AXTitle" then return "Tabs" end
+        if attribute == "AXTabs" then return tabs end
+    end}
+    local vivaldiWindow = {attributeValue = function(_, attribute)
+        if attribute == "AXChildren" then
+            return model.axReady and {tabGroup} or {}
+        end
+    end}
     local function enqueue(delay, fn) queue[#queue + 1] = {at = now + delay, fn = fn} end
     local mock = {
         keycodes = {map = {f15 = 113}},
@@ -141,6 +175,7 @@ local function harness(native)
         },
         application = {
             frontmostApplication = function()
+                if model.vivaldi and model.vivaldiRunning then return vivaldiApp end
                 return {
                     pid = function() return model.windows[model.focused + 1].pid end,
                     bundleID = function() return "test" end,
@@ -150,6 +185,9 @@ local function harness(native)
                 }
             end,
             get = function(pid)
+                if pid == "com.vivaldi.Vivaldi" and model.vivaldiRunning then
+                    return vivaldiApp
+                end
                 if pid == "com.lwouis.alt-tab-macos" then
                     if not model.altTabRunning then return nil end
                     return {alttab = true, path = function() return "/Other Apps/AltTab.app" end}
@@ -171,19 +209,61 @@ local function harness(native)
                 end
                 return apps
             end,
+            watcher = {
+                launched = 1, activated = 2, terminated = 3,
+                new = function(callback)
+                    model.appWatcher = callback
+                    return {start = function() end}
+                end,
+            },
         },
         axuielement = {applicationElement = function(app)
+            if app.vivaldi then
+                return {
+                    attributeValue = function(_, attribute)
+                        if attribute == "AXEnhancedUserInterface" then
+                            return model.axRequested
+                        end
+                    end,
+                    setAttributeValue = function(_, attribute, value)
+                        assert(attribute == "AXEnhancedUserInterface" and value == true)
+                        model.axRequested = true
+                        model.axRequests = model.axRequests + 1
+                        if model.axWillReady then
+                            enqueue(2, function() model.axReady = true end)
+                        end
+                        return nil, "Function or method not implemented"
+                    end,
+                }
+            end
             assert(app.dock)
             return {attributeValue = function(_, attribute)
                 assert(attribute == "AXChildren")
                 return model.nativeVisible and {list} or {}
             end}
+        end,
+        windowElement = function()
+            assert(model.vivaldi)
+            return vivaldiWindow
         end},
         window = {
             focusedWindow = function()
+                if model.vivaldi then
+                    if model.windowUnavailableUntilAX and not model.axReady then
+                        return nil
+                    end
+                    return {
+                        application = function() return vivaldiApp end,
+                        id = function() return model.windowID end,
+                    }
+                end
                 return {id = function() return model.windows[model.focused + 1].wid end}
             end,
         },
+        osascript = {applescript = function(script)
+            model.appleScripts[#model.appleScripts + 1] = script
+            return true, "switched"
+        end},
     }
     local env = setmetatable({hs = mock, require = function() end}, {__index = _G})
     assert(loadfile(candidate, "t", env))()
@@ -479,4 +559,47 @@ do
     emit(10)
 end
 
-return "26 offline MX switcher simulations passed (9 AltTab, 17 native/detection)"
+do
+    local model, _, shortcuts, _, emit = harness(true, {vivaldi = true})
+    emit(1) -- The first step after login must survive Vivaldi's shallow AX tree.
+    assert(#model.appleScripts == 1 and #shortcuts == 0)
+    assert(model.axRequests == 1)
+    emit(2)
+    assert(#model.appleScripts == 2 and #shortcuts == 0)
+end
+
+do
+    local model, _, shortcuts, _, emit = harness(true,
+        {vivaldi = true, axWillReady = false})
+    emit(1) -- An unavailable AX tree must not silently swallow the step.
+    assert(#model.appleScripts == 0 and shortcuts[1] == "ctrl+tab")
+end
+
+do
+    local model, _, _, _, emit = harness(true,
+        {vivaldi = true, vivaldiRunning = false})
+    model.vivaldiRunning = true -- Browser launched after Hammerspoon.
+    assert(model.appWatcher)
+    model.appWatcher("Vivaldi", 1, model.vivaldiApp)
+    emit(2)
+    assert(#model.appleScripts == 1 and model.axRequests == 1)
+end
+
+do
+    local model, _, shortcuts, _, emit, _, _, pump = harness(true,
+        {vivaldi = true})
+    emit(1, true)
+    pump(1) -- The first step waits for Vivaldi's AX tree.
+    model.windowID = 200 -- Focus moved to another Vivaldi window.
+    pump()
+    assert(#model.appleScripts == 0 and #shortcuts == 0)
+end
+
+do
+    local model, _, shortcuts, _, emit = harness(true,
+        {vivaldi = true, windowUnavailableUntilAX = true})
+    emit(1) -- A browser window may be absent from AX until Chromium enables it.
+    assert(#model.appleScripts == 1 and #shortcuts == 0)
+end
+
+return "31 offline MX simulations passed (9 AltTab, 17 native/detection, 5 Vivaldi)"

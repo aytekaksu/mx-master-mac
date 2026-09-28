@@ -13,6 +13,8 @@ local TAG_BASE = 0x4D5800
 local KEY_PRESS_USEC = 50000
 local altTabPath = nil
 local ALT_TAB_BUNDLE = "com.lwouis.alt-tab-macos"
+local VIVALDI_BUNDLE = "com.vivaldi.Vivaldi"
+local VIVALDI_AX_WARMUP = 2.2
 
 local ACTION = {
     thumbWheelUp = 1, thumbWheelDown = 2,
@@ -34,6 +36,9 @@ local mouseShowIssued = false
 local pendingTabSteps = {}
 local tabWorkScheduled = false
 local tabQueueGeneration = 0
+local vivaldiAXPid = nil
+local vivaldiAXRequestedAt = nil
+local vivaldiAppWatcher = nil
 local helperPID = nil
 local lastTaggedSourcePID = nil
 local receiverHealthy = true
@@ -663,7 +668,33 @@ local browserShortcuts = {
     ["com.microsoft.edgemac"] = {
         next = {{"cmd"}, "pagedown"}, previous = {{"cmd"}, "pageup"},
     },
+    [VIVALDI_BUNDLE] = {
+        next = {{"ctrl"}, "tab"}, previous = {{"ctrl", "shift"}, "tab"},
+    },
 }
+
+-- Chromium can expose only a shallow window tree after login. Request its
+-- complete accessibility tree once per Vivaldi process before reading tabs.
+local function requestVivaldiAccessibility(app)
+    if not app or app:bundleID() ~= VIVALDI_BUNDLE then return nil end
+    local pid = app:pid()
+    if not pid then return nil end
+    local ok, element = pcall(hs.axuielement.applicationElement, app)
+    if not ok or not element then return nil end
+    local function enabled()
+        local readOK, value = pcall(element.attributeValue, element,
+                                    "AXEnhancedUserInterface")
+        return readOK and value == true
+    end
+    if vivaldiAXPid == pid and enabled() then return vivaldiAXRequestedAt end
+    -- Chromium handles the request even if the macOS AX setter reports
+    -- "Function or method not implemented"; read the attribute to confirm.
+    pcall(element.setAttributeValue, element, "AXEnhancedUserInterface", true)
+    if not enabled() then return nil end
+    vivaldiAXPid = pid
+    vivaldiAXRequestedAt = hs.timer.secondsSinceEpoch()
+    return vivaldiAXRequestedAt
+end
 
 -- Vivaldi's AppleScript `tabs` includes other workspaces. Its native Tabs
 -- accessibility group lists only tabs visible in the current workspace, in
@@ -754,18 +785,40 @@ end
 
 local function flushTabStep(generation)
     if generation ~= tabQueueGeneration then return end
-    local step = table.remove(pendingTabSteps, 1)
+    local step = pendingTabSteps[1]
     if not step then
         tabWorkScheduled = false
         return
     end
 
     local foreground = hs.application.frontmostApplication()
-    if foreground and foreground:bundleID() == step.bundle then
-        if step.bundle == "com.vivaldi.Vivaldi" then
-            local ids, reason = vivaldiVisibleIDs()
+    local focused = step.waitingForAX and hs.window.focusedWindow() or nil
+    local sameWindow = not step.waitingForAX or not step.windowID or
+        (focused and focused:id() == step.windowID)
+    if foreground and foreground:bundleID() == step.bundle and sameWindow then
+        if step.bundle == VIVALDI_BUNDLE then
+            local requestedAt = requestVivaldiAccessibility(foreground)
+            local axOK, ids, reason = pcall(vivaldiVisibleIDs)
+            if not axOK then ids, reason = nil, "accessibility-error" end
+            if not ids and (reason == "window" or reason == "accessibility-window"
+                            or reason == "tab-group") then
+                local remaining = requestedAt and
+                    (requestedAt + VIVALDI_AX_WARMUP - hs.timer.secondsSinceEpoch()) or 0
+                if remaining > 0 then
+                    step.waitingForAX = true
+                    hs.timer.doAfter(remaining, function()
+                        runSafely(function() flushTabStep(generation) end)
+                    end)
+                    return -- Keep this wheel step queued while Chromium builds AX.
+                end
+            end
             if not ids then
-                note("tab-vivaldi-skip:" .. reason)
+                if reason == "too-few-tabs" then
+                    note("tab-vivaldi-skip:" .. reason)
+                else
+                    note("tab-vivaldi-fallback:" .. reason)
+                    sendTabShortcut(step.bundle, step.direction)
+                end
             else
                 local ok, result = hs.osascript.applescript(
                     vivaldiTabScript(ids, step.direction))
@@ -778,8 +831,11 @@ local function flushTabStep(generation)
         else
             sendTabShortcut(step.bundle, step.direction)
         end
+    elseif step.waitingForAX and not sameWindow then
+        note("tab-vivaldi-skip:focus-changed")
     end
 
+    table.remove(pendingTabSteps, 1)
     if #pendingTabSteps > 0 then
         hs.timer.doAfter(0, function()
             runSafely(function() flushTabStep(generation) end)
@@ -792,8 +848,10 @@ end
 local function switchTab(nextTab)
     local app = hs.application.frontmostApplication()
     local bundle = app and app:bundleID() or ""
+    local window = bundle == VIVALDI_BUNDLE and hs.window.focusedWindow() or nil
     pendingTabSteps[#pendingTabSteps + 1] = {
         bundle = bundle, direction = nextTab and 1 or -1,
+        windowID = window and window:id(),
     }
     if tabWorkScheduled then return end
     tabWorkScheduled = true
@@ -910,5 +968,18 @@ mx4 = {
         return true
     end,
 }
+
+vivaldiAppWatcher = hs.application.watcher.new(function(_, event, app)
+    if event == hs.application.watcher.terminated then
+        if app and app:pid() == vivaldiAXPid then
+            vivaldiAXPid, vivaldiAXRequestedAt = nil, nil
+        end
+    elseif event == hs.application.watcher.launched
+        or event == hs.application.watcher.activated then
+        requestVivaldiAccessibility(app)
+    end
+end)
+vivaldiAppWatcher:start()
+requestVivaldiAccessibility(hs.application.get(VIVALDI_BUNDLE))
 
 -- Receiver errors and missing permissions are reported through mx4.status().
