@@ -24,7 +24,7 @@ While holding the third side button, click **left and right together** to select
 
 - MX Master 4 and macOS 13 or newer, plus [Hammerspoon](https://www.hammerspoon.org/) and either [OpenLogi](https://github.com/AprilNEA/OpenLogi) **0.8.8+** or [Logi Options+](https://www.logitech.com/software/logi-options-plus.html). The installer keeps an existing provider and installs **OpenLogi by default** when neither is present. An administrator password may be needed to install apps in `/Applications`. Run only one mouse provider at a time.
 - **AltTab is optional.** Apple's built-in switcher works without it. The installer can also download [AltTab](https://alt-tab.app/) if you choose individual window thumbnails. Existing apps keep their versions and settings.
-- macOS Accessibility and Input Monitoring permissions for the helper and Hammerspoon. AltTab additionally needs Accessibility and Screen Recording when used. macOS may ask for Automation permission when switching Vivaldi tabs.
+- macOS Accessibility and Input Monitoring permissions for the helper and Hammerspoon. AltTab additionally needs Accessibility and Screen Recording when used. Browser tab actions do not need Automation permission.
 
 The prebuilt helper contains Apple Silicon and Intel code and targets macOS 13 or newer. Mouse behavior has been tested on one Apple Silicon Mac running macOS 26.3.1 with native app switching and AltTab 11.6.1 / 11.7.1; the Intel helper tests passed under Rosetta, but a physical Intel Mac and older macOS versions have not been tested. The helper currently recognizes the MX Master 4 hardware ID used by that mouse and accepts the standard Logi Options+ agent path or the signed OpenLogi background agent. OpenLogi needs raw wheel input: keep smooth scrolling off and vertical sensitivity at 14 (1×). Other Logitech mice and other AltTab versions are not verified.
 
@@ -33,7 +33,7 @@ The prebuilt helper contains Apple Silicon and Intel code and targets macOS 13 o
 Paste this into Terminal as your normal Mac user:
 
 ```sh
-(s=$(curl -fsSL https://github.com/aytekaksu/mx-master-mac/raw/v0.5.0/scripts/bootstrap.sh)&&[ "$s" ]&&sh -c "$s")
+(s=$(curl -fsSL https://github.com/aytekaksu/mx-master-mac/raw/v0.5.1/scripts/bootstrap.sh)&&[ "$s" ]&&sh -c "$s")
 ```
 
 The script downloads this release, checks its built-in SHA-256 digest, and installs the helper in `~/.hammerspoon`. It installs missing Hammerspoon 1.1.1 from its verified official release, and the official OpenLogi 0.8.8 release for Apple Silicon or Intel after checking its SHA-256 digest, Developer ID signature, and macOS approval. Existing Logi Options+ installs are supported and preserved. If AltTab is missing, it asks **“Install AltTab too? [y/N]”**: press Return to use macOS, or type `y` to install the tested AltTab 11.6.1. With no interactive terminal, it defaults to macOS.
@@ -43,14 +43,14 @@ No Homebrew, Xcode tools, manual unzip, or source build is needed. The script ba
 After the command finishes:
 
 1. **OpenLogi:** follow the short [OpenLogi setup guide](docs/openlogi.md) to grant the Agent permissions and assign held F13/F14 shortcuts in its configuration file. **Options+:** assign the MX **thumb button to F13** and the **third side button to F14** as keystrokes.
-2. Grant the requested macOS permissions, then start Hammerspoon or reload it if already running. To use AltTab's thumbnails, start AltTab too and grant its permissions. Detection happens automatically; its keyboard shortcuts stay as you set them.
+2. Grant the requested macOS permissions, then start Hammerspoon or reload it if already running. Enable Hammerspoon's **Launch at Login** setting and your mouse provider's login agent so the macros return after a restart. To use AltTab's thumbnails, start AltTab, grant its permissions, and enable its login setting too. Detection happens automatically; its keyboard shortcuts stay as you set them.
 3. Hold a button and try one wheel notch in each direction. If you granted a permission after an app started, quit and reopen that app before testing again.
 
 The helper is ad hoc signed, not Developer ID signed or notarized. macOS may ask you to approve this specific download in **System Settings → Privacy & Security** before it can run. The release also provides a `.sha256` checksum file for the ZIP. Do not disable Gatekeeper system-wide.
 
 ### Manual download (optional)
 
-Download **`mx-master-mac-v0.5.0-macos-universal.zip`** from the [latest GitHub release](https://github.com/aytekaksu/mx-master-mac/releases/latest), unzip it, and run `sh install.sh` in the unzipped folder. Install Hammerspoon and either OpenLogi or Logi Options+ yourself; add AltTab if you want its thumbnails. GitHub's automatic “Source code” ZIP does not contain the compiled helper.
+Download **`mx-master-mac-v0.5.1-macos-universal.zip`** from the [latest GitHub release](https://github.com/aytekaksu/mx-master-mac/releases/latest), unzip it, and run `sh install.sh` in the unzipped folder. Install Hammerspoon and either OpenLogi or Logi Options+ yourself; add AltTab if you want its thumbnails. GitHub's automatic “Source code” ZIP does not contain the compiled helper.
 
 ### Build from source (optional)
 
@@ -68,7 +68,7 @@ Hammerspoon: browser shortcuts + automatic switcher detection
 Your browser, Apple's app icons, or AltTab's window thumbnails
 ```
 
-The helper consumes a wheel or click only when it recognizes the MX Master 4 action. Trackpad and unknown-device input pass through. Browser tabs do **not** need AltTab: Vivaldi uses its visible tab list through Accessibility and AppleScript; Safari, Chrome, Firefox, Brave, and Edge use their built-in shortcuts. Hammerspoon requests Vivaldi's tab accessibility tree when Vivaldi starts. If it is still loading after login, the first wheel step waits briefly instead of being lost. If the tree remains unavailable, Vivaldi uses its built-in Control+Tab shortcut, which follows your Tab Cycling setting. Other apps get a Control+Tab fallback, which may not work everywhere.
+The helper consumes a wheel or click only when it recognizes the MX Master 4 action. Trackpad and unknown-device input pass through. The thumb-wheel sends **Control+Tab** and **Control+Shift+Tab** to the focused app, with no browser list, tab Accessibility lookup, AppleScript, or per-browser setup. Safari, Chrome/Chromium, Firefox, and Vivaldi support these tab shortcuts; other browsers work when they support the same keys. Each browser chooses its own cycling order, which may be recently used tabs or visible tab order. The thumb-button clicks send Command+W and Command+T for close and new tab. These shortcuts may act differently in a browser that remaps them or in a non-browser app.
 
 ### Which switcher will I see?
 
@@ -88,7 +88,7 @@ For macOS, Hammerspoon opens the native switcher and uses Accessibility to selec
 Quit Hammerspoon to stop the macros; reopen it to resume. In Hammerspoon's console, `mx4runtime.pause()` and `mx4runtime.resume()` also work. `mx4runtime.status()` reports whether the helper is running. After a wheel gesture, `mx4.status()` reports `windowBackend` (`macos` or `alttab`) and any `switcherError`.
 
 - No mouse actions: check the F13/F14 mappings and macOS permissions, then reload Hammerspoon.
-- Tabs fail only in Vivaldi: allow Hammerspoon Accessibility and Vivaldi Automation. After login, the first wheel step may take about two seconds while Vivaldi exposes its tab list. In Hammerspoon's console, `mx4.trace()` shows `tab-vivaldi-fallback` when Vivaldi's accessibility tree stays unavailable; check that Control+Tab is still assigned to tab cycling in Vivaldi's keyboard settings.
+- Tabs do not switch: press Control+Tab and Control+Shift+Tab on your keyboard in the focused browser. If those keys do not cycle its tabs, check that browser's shortcut settings. If they work on the keyboard but not the wheel, check `mx4.status()` and `mx4.trace()` in Hammerspoon's console; `tab-skip:focus-changed` means another app took focus before the queued step ran. No browser-specific Automation permission is needed.
 - Native app switching fails: check Hammerspoon's Accessibility permission and that Command+Tab opens Apple's switcher. Other apps that replace Command+Tab may conflict.
 - AltTab switching fails: check its permissions and version. If its CLI is incompatible or unavailable, update or quit AltTab to use macOS. We leave a running AltTab's shortcuts alone instead of sending keystrokes into a conflicting switcher.
 - Wheel actions fail with another Logitech mouse connected: the current helper accepts senderless Logi wheel events only when the MX Master 4 is the sole connected Logitech pointing device.

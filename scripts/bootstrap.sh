@@ -3,9 +3,9 @@ set -eu
 
 # This file is served from the matching versioned Git tag. Update the archive
 # digest when packaging a new release; never execute an unchecked download.
-version=v0.5.0
+version=v0.5.1
 package_name="mx-master-mac-$version-macos-universal"
-package_sha256=3262f2b7b5142cd4e1517665b1324398df06b2c4381394929c6de55028fef9f1
+package_sha256=d7e47293b4e75d45a4761c794ad930557343576bff25e904fb06cab0f961eb5d
 hammerspoon_sha256=11bb1c90faf5427f37c7bd4fe7eab9774ae43e1d5cb020c5b3088dac32849efa
 alttab_sha256=0bb2f23b061636173b288b19f3f5412a8ad33f5ac6826a317f0ed28e7b64afe8
 apps_dir=/Applications
@@ -224,6 +224,7 @@ else
 fi
 printf '• Grant the macOS permissions requested by Hammerspoon and the helper.\n'
 printf '• Start Hammerspoon, or reload it if it was already running.\n'
+printf '• Enable Hammerspoon Launch at Login and your mouse provider login agent for use after a restart.\n'
 printf '• If using AltTab, start it and grant its Accessibility and Screen Recording permissions.\n'
 printf '• The window wheel detects a running AltTab. Quit AltTab to use the macOS app switcher.\n'
 if [ "$provider" = optionsplus ] && [ ! -x "$logi_agent" ]; then
